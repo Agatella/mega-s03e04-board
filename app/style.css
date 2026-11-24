@@ -13,3 +13,12 @@ footer { color: #777; font-size: 13px; }
 .row .ack { font: inherit; padding: 6px 14px; min-height: 32px; cursor: pointer; border: 1px solid #1d1d1f; background: #fff; border-radius: 4px; }
 .row .ack:disabled { opacity: .5; cursor: wait; }
 .row .acked { color: #0a7a2f; font-weight: 600; }
+.backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.confirm { background: #fff; border-radius: 8px; padding: 20px 24px; width: min(440px, 90vw); box-shadow: 0 8px 30px rgba(0, 0, 0, .3); }
+.confirm h2 { margin: 0 0 6px; font-size: 20px; }
+.confirm .what { margin: 0 0 12px; color: #444; }
+.confirm .error { margin: 0 0 12px; color: #b00020; }
+.confirm .buttons { display: flex; gap: 12px; }
+.confirm button { font: inherit; min-height: 44px; padding: 0 16px; border: 1px solid #1d1d1f; background: #fff; border-radius: 4px; cursor: pointer; }
+.confirm button.primary { background: #1d1d1f; color: #fff; }
+.confirm button:disabled { opacity: .5; cursor: wait; }

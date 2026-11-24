@@ -25,6 +25,10 @@ const browser = await chromium.launch({ channel: 'chrome' });
     }
     return route.continue();
   });
+  await page.addInitScript(() => {
+    window.__rowsRemoved = 0;
+    new MutationObserver((rs) => { for (const r of rs) for (const n of r.removedNodes) if (n.nodeType === 1 && (n.matches?.('[data-testid="incident-row"]') || n.querySelector?.('[data-testid="incident-row"]'))) window.__rowsRemoved++; }).observe(document, { childList: true, subtree: true });
+  });
   await page.goto(url);
   ok('R3 loader shows on open', await page.locator(tid('loader')).isVisible());
   await page.locator(tid('incident-row')).first().waitFor({ timeout: 15000 });
@@ -39,13 +43,24 @@ const browser = await chromium.launch({ channel: 'chrome' });
   const row = page.locator(`${tid('incident-row')}[data-id="INC-LIVE-1"]`);
   const target = page.locator(tid('incident-row')).nth(1);
   const targetId = await target.getAttribute('data-id');
+  // R2 (SCHED-4515): Ack opens a confirm that names the incident; cancel acks nothing
+  const before = logs.filter((l) => l.startsWith('ack ')).length;
   await target.locator(tid('ack')).click();
+  ok('R2 Ack opens a confirm naming the incident', (await page.locator(tid('confirm')).innerText()).includes(targetId));
+  await page.locator(tid('confirm-cancel')).click();
+  ok('R2 Cancel closes it and acks nothing', (await page.locator(tid('confirm')).count()) === 0 && (await target.locator(tid('acked')).count()) === 0 && logs.filter((l) => l.startsWith('ack ')).length === before);
+  await target.locator(tid('ack')).click();
+  await page.keyboard.press('Escape');
+  ok('R2 Escape closes it', (await page.locator(tid('confirm')).count()) === 0);
+  await target.locator(tid('ack')).click();
+  await page.locator(tid('confirm-ack')).click();
   await target.locator(tid('acked')).waitFor({ timeout: 10000 });
-  ok('R2 ack marks the row acked', true, targetId);
+  ok('R2 confirm-ack marks the row acked', true, targetId);
   ok('R2 the receipt is logged', logs.some((l) => l.startsWith('ack ') && l.includes(targetId)));
   await page.waitForTimeout(4500);
   ok('R4 rows stay after more refreshes', (await page.locator(tid('incident-row')).count()) >= count1);
   ok('R2 acked mark survives refreshes', (await page.locator(`${tid('incident-row')}[data-id="${targetId}"] ${tid('acked')}`).count()) === 1);
+  ok('R1 no row was ever taken off the board', (await page.evaluate(() => window.__rowsRemoved)) === 0);
   ok('R2 live row still has its Ack button', (await row.locator(tid('ack')).count()) === 1);
   await ctx.close();
 }

@@ -23,22 +23,61 @@ function makeRow(i) {
   time.setAttribute('datetime', i.openedAt);
   const button = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Ack', className: 'ack' });
   button.setAttribute('data-testid', 'ack');
-  button.addEventListener('click', () => onAck(i.id, button, li));
+  button.addEventListener('click', () => openConfirm(i));
   li.append(cell('id', i.id), cell('sev', i.severity), cell('what', `${i.service} · ${i.region} · ${i.summary}`), time, button);
   return li;
 }
 
-// R2: Ack calls api.ack(id), then the row shows the acked mark. A failed ack leaves the button usable.
-async function onAck(id, button, li) {
-  button.disabled = true;
-  try {
-    await ack(id);
-    acked.add(id);
-    markAcked(li);
-  } catch (err) {
-    console.error(err);
-    button.disabled = false;
-  }
+// R2 (changed by product, SCHED-4515): Ack opens a confirm that names the incident. Only the confirm sends the ack
+// (api.ack(id)) and marks the row acked. Cancel, Escape or a click outside close it and ack nothing.
+let confirmBox = null;
+function closeConfirm() {
+  confirmBox?.remove();
+  confirmBox = null;
+}
+function openConfirm(i) {
+  closeConfirm();
+  const el = (tag, props = {}, testid) => {
+    const node = Object.assign(document.createElement(tag), props);
+    if (testid) node.setAttribute('data-testid', testid);
+    return node;
+  };
+  const backdrop = el('div', { className: 'backdrop' });
+  const box = el('div', { className: 'confirm' }, 'confirm');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  box.setAttribute('aria-labelledby', 'confirm-title');
+  box.dataset.id = i.id;
+  const title = el('h2', { id: 'confirm-title', textContent: `Ack ${i.id}?` });
+  const what = el('p', { className: 'what', textContent: `${i.service} · ${i.region} · ${i.summary}` });
+  const message = el('p', { className: 'error', hidden: true });
+  const yes = el('button', { type: 'button', textContent: `Ack ${i.id}`, className: 'primary' }, 'confirm-ack');
+  const no = el('button', { type: 'button', textContent: 'Cancel' }, 'confirm-cancel');
+  const buttons = el('div', { className: 'buttons' });
+  buttons.append(yes, no);
+  box.append(title, what, message, buttons);
+  backdrop.append(box);
+  document.body.append(backdrop);
+  confirmBox = backdrop;
+  no.addEventListener('click', closeConfirm);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeConfirm(); });
+  backdrop.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeConfirm(); });
+  yes.addEventListener('click', async () => {
+    yes.disabled = no.disabled = true;
+    try {
+      await ack(i.id);
+      acked.add(i.id);
+      const row = rows.get(i.id);
+      if (row) markAcked(row.li);
+      closeConfirm();
+    } catch (err) {
+      console.error(err);
+      message.textContent = `Could not ack ${i.id}. Try again.`;
+      message.hidden = false;
+      yes.disabled = no.disabled = false;
+    }
+  });
+  yes.focus();
 }
 function markAcked(li) {
   li.querySelector('[data-testid="ack"]')?.remove();
@@ -48,16 +87,21 @@ function markAcked(li) {
   li.append(mark);
 }
 
-// R1: the API answers only what is new after the first page, so merge by id and keep newest first.
+// R1: merge by id, newest first. New rows are inserted at their place; rows already on the board are never moved
+// or rebuilt (a moved row counts as a removed row, and the pointer must not be under a row that was rebuilt).
 function merge(incidents) {
-  for (const i of incidents) {
-    if (rows.has(i.id)) continue;
+  const fresh = incidents.filter((i) => !rows.has(i.id)).sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt));
+  for (const i of fresh) {
     const li = makeRow(i);
     if (acked.has(i.id)) markAcked(li);
+    const t = Date.parse(i.openedAt);
+    let before = null;
+    for (const row of list.children) {
+      if (Date.parse(rows.get(row.dataset.id).incident.openedAt) < t) { before = row; break; }
+    }
+    list.insertBefore(li, before);
     rows.set(i.id, { incident: i, li });
   }
-  const sorted = [...rows.values()].sort((a, b) => Date.parse(b.incident.openedAt) - Date.parse(a.incident.openedAt));
-  list.append(...sorted.map((r) => r.li)); // moves existing nodes; nothing is rebuilt
   $('empty').hidden = rows.size > 0;
 }
 
